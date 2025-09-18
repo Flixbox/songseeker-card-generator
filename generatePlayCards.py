@@ -99,7 +99,7 @@ def add_text_box(c, info, position, box_size,
     c.setFont(font_year, font_size_year)
     c.drawString(year_x, year_y, year_text)
 
-def main(csv_file_path, output_pdf_path, icon_path=None):
+def main(csv_file_path, output_pdf_path, icon_path=None, mirror_backside=True):
     data = pd.read_csv(csv_file_path)
     data = data.applymap(lambda x: x.strip() if isinstance(x, str) else x) # Remove leading and trailing whitespaces
 
@@ -126,16 +126,26 @@ def main(csv_file_path, output_pdf_path, icon_path=None):
 
         c.showPage()
 
-        # Add text information
-        for index in range(i, min(i + boxes_per_page, len(data))):
-            row = data.iloc[index]
-            position_index = index % boxes_per_page
-            column_index = (boxes_per_row-1) - position_index % boxes_per_row
-            row_index = position_index // boxes_per_row
-            x = hpageindent + (column_index * box_size)
-            y = page_height - vpageindent - (row_index + 1) * box_size
-            add_text_box(c, row, (x, y), box_size)
 
+        # Add text information (backside)
+        if mirror_backside:
+            for index in range(i, min(i + boxes_per_page, len(data))):
+                row = data.iloc[index]
+                position_index = index % boxes_per_page
+                column_index = (boxes_per_row-1) - position_index % boxes_per_row
+                row_index = position_index // boxes_per_row
+                x = hpageindent + (column_index * box_size)
+                y = page_height - vpageindent - (row_index + 1) * box_size
+                add_text_box(c, row, (x, y), box_size)
+        else:
+            for index in range(i, min(i + boxes_per_page, len(data))):
+                row = data.iloc[index]
+                position_index = index % boxes_per_page
+                column_index = position_index % boxes_per_row
+                row_index = position_index // boxes_per_row
+                x = hpageindent + (column_index * box_size)
+                y = page_height - vpageindent - (row_index + 1) * box_size
+                add_text_box(c, row, (x, y), box_size)
         c.showPage()
 
     c.save()
@@ -145,5 +155,7 @@ if __name__ == "__main__":
     parser.add_argument("csv_file", help="Path to the CSV file")
     parser.add_argument("output_pdf", help="Path to the output PDF file")
     parser.add_argument("--icon", help="path to icon to embedd to QR Code, should not exeed 300x300px and using transparent background", required = False)
+    parser.add_argument("--no-mirror-backside", action="store_true", help="Disable mirroring on the backside (text side)")
     args = parser.parse_args()
-    main(args.csv_file, args.output_pdf, args.icon)
+    mirror_backside = not args.no_mirror_backside
+    main(args.csv_file, args.output_pdf, args.icon, mirror_backside)
