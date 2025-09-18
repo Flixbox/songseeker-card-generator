@@ -4,6 +4,9 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase.pdfmetrics import registerFontFamily
 import qrcode
 from qrcode.image.styledpil import StyledPilImage
 import hashlib
@@ -17,6 +20,65 @@ PADDING_RATIO = 0.10  # 10% padding on each side inside each card box
 YEAR_MAX_HEIGHT_RATIO = 0.20  # Year text may take up to 20% of inner card height
 ARTIST_MAX_HEIGHT_RATIO = 0.12  # Artist block line size cap relative to inner height
 TITLE_MAX_HEIGHT_RATIO = 0.12   # Title block line size cap relative to inner height
+
+# Global font names to be used across the document. These will be set up
+# to point at Unicode TrueType fonts when available (e.g., Arial on Windows),
+# falling back to built-in Helvetica if not found.
+FONT_REGULAR_NAME = "Helvetica"
+FONT_BOLD_NAME = "Helvetica-Bold"
+
+def _try_register_ttf_font(family_name, regular_path, bold_path=None):
+    """Register TTF fonts with ReportLab. Returns (regular_name, bold_name)."""
+    regular_name = family_name
+    bold_name = f"{family_name}-Bold" if bold_path else family_name
+    pdfmetrics.registerFont(TTFont(regular_name, regular_path))
+    if bold_path:
+        pdfmetrics.registerFont(TTFont(bold_name, bold_path))
+        registerFontFamily(family_name, normal=regular_name, bold=bold_name)
+    return regular_name, bold_name
+
+def _setup_unicode_fonts():
+    """Best-effort registration of Unicode fonts so extended characters (e.g., ō) render.
+    On Windows, try common fonts from C:\\Windows\\Fonts. If none found, keep Helvetica.
+    """
+    global FONT_REGULAR_NAME, FONT_BOLD_NAME
+    font_dirs = []
+    # Common Windows fonts directory
+    try:
+        font_dirs.append(os.path.join(os.environ.get("WINDIR", r"C:\\Windows"), "Fonts"))
+    except Exception:
+        pass
+    # Also allow fonts near the project (e.g., dropped into repo)
+    font_dirs.append(os.path.abspath("."))
+    # Candidate families (regular, bold)
+    candidates = [
+        ("Arial", ["arial.ttf", "ARIAL.TTF"], ["arialbd.ttf", "ARIALBD.TTF"]),
+        ("SegoeUI", ["segoeui.ttf", "SEGOEUI.TTF"], ["segoeuib.ttf", "SEGOEUIB.TTF"]),
+        ("Calibri", ["calibri.ttf", "CALIBRI.TTF"], ["calibrib.ttf", "CALIBRIB.TTF"]),
+        ("Verdana", ["verdana.ttf", "VERDANA.TTF"], ["verdanab.ttf", "VERDANAB.TTF"]),
+        ("Tahoma", ["tahoma.ttf", "TAHOMA.TTF"], ["tahomabd.ttf", "TAHOMABD.TTF"]),
+        ("DejaVuSans", ["DejaVuSans.ttf"], ["DejaVuSans-Bold.ttf"]),
+        ("NotoSans", ["NotoSans-Regular.ttf"], ["NotoSans-Bold.ttf"]),
+    ]
+    def find_file(possible_names):
+        for d in font_dirs:
+            for name in possible_names:
+                p = os.path.join(d, name)
+                if os.path.isfile(p):
+                    return p
+        return None
+    for family, reg_list, bold_list in candidates:
+        reg_path = find_file(reg_list)
+        if not reg_path:
+            continue
+        bold_path = find_file(bold_list)
+        try:
+            regular_name, bold_name = _try_register_ttf_font(family, reg_path, bold_path)
+            FONT_REGULAR_NAME, FONT_BOLD_NAME = regular_name, (bold_name if bold_path else regular_name)
+            return
+        except Exception:
+            continue
+    # If no TTF font could be registered, keep defaults (Helvetica family)
 
 def _inner_rect(x, y, width, height, padding_ratio=PADDING_RATIO):
     """Return the inner content rectangle applying padding on all sides."""
@@ -134,9 +196,9 @@ def add_qr_code_with_border(c, url, position, box_width, box_height, icon_path, 
     os.remove(qr_code_path)
 
 def add_text_box(c, info, position, box_width, box_height,
-                 font_artist="Helvetica-Bold", font_size_artist=14,
-                 font_title="Helvetica", font_size_title=14,
-                 font_year = "Helvetica-Bold", font_size_year = 50,
+                 font_artist=None, font_size_artist=14,
+                 font_title=None, font_size_title=14,
+                 font_year=None, font_size_year=50,
                  shrink_pct=0.0):
     x, y = position
     # Establish an inner padded content area
@@ -177,6 +239,14 @@ def add_text_box(c, info, position, box_width, box_height,
     artist_text = None if 'Artist' not in info or pd.isna(info['Artist']) else f"{info['Artist']}"
     title_text = None if 'Title' not in info or pd.isna(info['Title']) else f"{info['Title']}"
     year_text = None if 'Year' not in info or pd.isna(info['Year']) else f"{info['Year']}"
+
+    # Choose fonts (use Unicode TTF if available)
+    if not font_artist:
+        font_artist = FONT_BOLD_NAME
+    if not font_title:
+        font_title = FONT_REGULAR_NAME
+    if not font_year:
+        font_year = FONT_BOLD_NAME
 
     # Start with provided base sizes
     size_artist = float(font_size_artist)
@@ -285,6 +355,8 @@ def add_text_box(c, info, position, box_width, box_height,
 
 
 def main(csv_file_path, output_pdf_path, icon_path=None, mirror_backside=True, front_bg_path=None, back_bg_path=None, qr_padding_px=None, shrink_front_pct=0.0, shrink_back_pct=0.0):
+    # Ensure Unicode TrueType fonts are registered before drawing
+    _setup_unicode_fonts()
     data = pd.read_csv(csv_file_path)
     # Remove leading/trailing whitespaces across the DataFrame using DataFrame.map (fallback to applymap for older pandas)
     try:
