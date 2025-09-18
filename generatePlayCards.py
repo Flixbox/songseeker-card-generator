@@ -71,12 +71,20 @@ def draw_background_image(c, pil_img, page_width, page_height):
     img_reader = ImageReader(pil_img)
     c.drawImage(img_reader, 0, 0, width=page_width, height=page_height)
 
-def generate_qr_code(url, file_path, icon_path, icon_image_cache={}):
+def generate_qr_code(url, file_path, icon_path, icon_image_cache={}, qr_padding_px=None):
+    # box_size controls pixels per QR module; border is measured in modules
+    box_size = 10
+    if qr_padding_px is None:
+        border_modules = 4  # default quiet zone (modules)
+    else:
+        # Convert desired pixel padding to module count; allow 0 but warn in docs
+        border_modules = max(0, int(round(qr_padding_px / box_size)))
+
     qr = qrcode.QRCode(
         version=1,
         error_correction=qrcode.constants.ERROR_CORRECT_Q,
-        box_size=10,
-        border=4,
+        box_size=box_size,
+        border=border_modules,
     )
     qr.add_data(url)
     qr.make(fit=True)
@@ -93,15 +101,30 @@ def generate_qr_code(url, file_path, icon_path, icon_image_cache={}):
             img = qr.make_image(image_factory=StyledPilImage, embeded_image_path=icon_path)
     img.save(file_path)
 
-def add_qr_code_with_border(c, url, position, box_width, box_height, icon_path):
+def add_qr_code_with_border(c, url, position, box_width, box_height, icon_path, qr_padding_px=None, shrink_pct=0.0):
     hash_object = hashlib.sha256(url.encode())
     hex_dig = hash_object.hexdigest()
 
     qr_code_path = f"qr_{hex_dig}.png"  # Unique path for each QR code
-    generate_qr_code(url, qr_code_path, icon_path)
+    generate_qr_code(url, qr_code_path, icon_path, qr_padding_px=qr_padding_px)
     x, y = position
     # Constrain QR to the inner padded rectangle
     inner_x, inner_y, inner_w, inner_h = _inner_rect(x, y, box_width, box_height)
+    # Optionally shrink content area by percentage and re-center
+    try:
+        pct = float(shrink_pct or 0.0)
+    except (TypeError, ValueError):
+        pct = 0.0
+    scale = 1.0 - (pct / 100.0)
+    # Clamp scale to avoid degenerate zero sizes
+    scale = max(0.05, min(1.0, scale))
+    if scale < 1.0:
+        scaled_w = inner_w * scale
+        scaled_h = inner_h * scale
+        inner_x = inner_x + (inner_w - scaled_w) / 2.0
+        inner_y = inner_y + (inner_h - scaled_h) / 2.0
+        inner_w = scaled_w
+        inner_h = scaled_h
     # Keep QR square: size is min of inner dimensions; center within the inner box
     qr_size = min(inner_w, inner_h)
     qr_x = inner_x + (inner_w - qr_size) / 2
@@ -113,10 +136,26 @@ def add_qr_code_with_border(c, url, position, box_width, box_height, icon_path):
 def add_text_box(c, info, position, box_width, box_height,
                  font_artist="Helvetica-Bold", font_size_artist=14,
                  font_title="Helvetica", font_size_title=14,
-                 font_year = "Helvetica-Bold", font_size_year = 50):
+                 font_year = "Helvetica-Bold", font_size_year = 50,
+                 shrink_pct=0.0):
     x, y = position
     # Establish an inner padded content area
     inner_x, inner_y, inner_w, inner_h = _inner_rect(x, y, box_width, box_height)
+
+    # Optionally shrink content area by percentage and re-center
+    try:
+        pct = float(shrink_pct or 0.0)
+    except (TypeError, ValueError):
+        pct = 0.0
+    scale = 1.0 - (pct / 100.0)
+    scale = max(0.05, min(1.0, scale))
+    if scale < 1.0:
+        scaled_w = inner_w * scale
+        scaled_h = inner_h * scale
+        inner_x = inner_x + (inner_w - scaled_w) / 2.0
+        inner_y = inner_y + (inner_h - scaled_h) / 2.0
+        inner_w = scaled_w
+        inner_h = scaled_h
 
     # Base margins; will be scaled along with fonts if needed
     text_margin = 4.0
@@ -245,7 +284,7 @@ def add_text_box(c, info, position, box_width, box_height,
         c.drawString(line_x, current_y, year_text)
 
 
-def main(csv_file_path, output_pdf_path, icon_path=None, mirror_backside=True, front_bg_path=None, back_bg_path=None):
+def main(csv_file_path, output_pdf_path, icon_path=None, mirror_backside=True, front_bg_path=None, back_bg_path=None, qr_padding_px=None, shrink_front_pct=0.0, shrink_back_pct=0.0):
     data = pd.read_csv(csv_file_path)
     # Remove leading/trailing whitespaces across the DataFrame using DataFrame.map (fallback to applymap for older pandas)
     try:
@@ -303,14 +342,14 @@ def main(csv_file_path, output_pdf_path, icon_path=None, mirror_backside=True, f
                 y = page_height - vpageindent - ((row_index + 1) * card_height)
                 # Draw background image in the card rect and then QR centered
                 draw_image_in_rect(c, front_bg_img, x, y, card_width, card_height)
-                add_qr_code_with_border(c, row['URL'], (x, y), card_width, card_height, icon_path)
+                add_qr_code_with_border(c, row['URL'], (x, y), card_width, card_height, icon_path, qr_padding_px=qr_padding_px, shrink_pct=shrink_front_pct)
             else:
                 position_index = index % (boxes_per_row * boxes_per_column)
                 column_index = position_index % boxes_per_row
                 row_index = position_index // boxes_per_row
                 x = hpageindent + (column_index * box_size)
                 y = page_height - vpageindent - (row_index + 1) * box_size
-                add_qr_code_with_border(c, row['URL'], (x, y), box_size, box_size, icon_path)
+                add_qr_code_with_border(c, row['URL'], (x, y), box_size, box_size, icon_path, qr_padding_px=qr_padding_px, shrink_pct=shrink_front_pct)
         c.showPage()
 
         # BACK SIDE (TEXT)
@@ -327,7 +366,7 @@ def main(csv_file_path, output_pdf_path, icon_path=None, mirror_backside=True, f
                 x = hpageindent + (column_index * card_width)
                 y = page_height - vpageindent - ((row_index + 1) * card_height)
                 draw_image_in_rect(c, back_bg_img, x, y, card_width, card_height)
-                add_text_box(c, row, (x, y), card_width, card_height)
+                add_text_box(c, row, (x, y), card_width, card_height, shrink_pct=shrink_back_pct)
             else:
                 position_index = index % boxes_per_page
                 if mirror_backside:
@@ -337,7 +376,7 @@ def main(csv_file_path, output_pdf_path, icon_path=None, mirror_backside=True, f
                 row_index = position_index // boxes_per_row
                 x = hpageindent + (column_index * box_size)
                 y = page_height - vpageindent - (row_index + 1) * box_size
-                add_text_box(c, row, (x, y), box_size, box_size)
+                add_text_box(c, row, (x, y), box_size, box_size, shrink_pct=shrink_back_pct)
         c.showPage()
 
     c.save()
@@ -350,6 +389,9 @@ if __name__ == "__main__":
     parser.add_argument("--no-mirror-backside", action="store_true", help="Disable mirroring on the backside (text side)")
     parser.add_argument("--front-bg", help="Path to background image for the front (QR) side", required=False)
     parser.add_argument("--back-bg", help="Path to background image for the back (text) side", required=False)
+    parser.add_argument("--qr-padding-px", type=int, default=None, help="QR code white border thickness in pixels (quiet zone). Example: 10. Note: QR spec recommends ~4 modules (~40px with default settings); reducing too much may impact scan reliability.")
+    parser.add_argument("--shrink-front", type=float, default=0.0, help="Shrink percentage for front (QR) content area, 0-100. Example: 10 => 10% smaller (90% of original). Values are clamped to a safe minimum size.")
+    parser.add_argument("--shrink-back", type=float, default=0.0, help="Shrink percentage for back (text) content area, 0-100. Example: 15 => 15% smaller. Values are clamped to a safe minimum size.")
     args = parser.parse_args()
     mirror_backside = not args.no_mirror_backside
-    main(args.csv_file, args.output_pdf, args.icon, mirror_backside, args.front_bg, args.back_bg)
+    main(args.csv_file, args.output_pdf, args.icon, mirror_backside, args.front_bg, args.back_bg, qr_padding_px=args.qr_padding_px, shrink_front_pct=args.shrink_front, shrink_back_pct=args.shrink_back)
