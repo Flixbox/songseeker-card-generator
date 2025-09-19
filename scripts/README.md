@@ -14,8 +14,7 @@ Notes:
 
 Installing dependencies:
 
-# Recommended: install yt-dlp and pafy
-follow the root readme file to install all dependencies
+Follow the root readme file to install all dependencies.
 
 # Alternatively, if you want to use pafy's internal backend (not recommended), set this env var before running:
 # On PowerShell (Windows):
