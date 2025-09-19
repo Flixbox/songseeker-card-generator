@@ -122,9 +122,13 @@ def main():
 
     print(f"Found {len(url_map)} unique YouTube urls")
 
+    total = len(url_map)
+    width = len(str(total))
+
     results = []
-    for url, sources in url_map.items():
-        print(f"Checking: {url}")
+    for idx, (url, sources) in enumerate(url_map.items(), start=1):
+        counter = f"[{str(idx).rjust(width)}/{total}]"
+        print(f"{counter} Checking: {url}")
         res = check_video(url)
         res["sources"] = sources
         results.append(res)
