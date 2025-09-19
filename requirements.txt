@@ -3,3 +3,6 @@ qrcode
 reportlab
 Pillow
 requests
+beautifulsoup4==4.12.2
+pafy
+yt-dlp
