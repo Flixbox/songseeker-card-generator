@@ -45,14 +45,17 @@ def extract_urls_from_csv(path: Path):
     try:
         with path.open("r", encoding="utf-8", errors="replace") as f:
             reader = csv.reader(f)
-            for row in reader:
+            for rownum, row in enumerate(reader, start=1):
+                # keep the original row text so we can print corrected CSV lines later
+                row_text = ", ".join(row)
                 for cell in row:
                     if "youtube.com" in cell or "youtu.be" in cell:
                         # extract url(s)
                         for m in re.finditer(r"https?://[\w\-\./\?&=%:#;@!$'()*+,]+", cell):
                             url = m.group(0)
                             if "youtube.com" in url or "youtu.be" in url:
-                                urls.append((url, path.as_posix()))
+                                # return tuple: (url, file, rownum, row_text)
+                                urls.append((url, path.as_posix(), rownum, row_text))
     except Exception as e:
         print(f"Failed to read {path}: {e}", file=sys.stderr)
     return urls
@@ -130,10 +133,82 @@ def precheck_duplicates(csv_paths):
     return not any_duplicates
 
 
-def check_video(url: str):
-    """Use yt-dlp to fetch video metadata. No HTTP fallback.
+def search_and_verify(search_query: str, max_results: int = 5, ydl_opts=None):
+    """Search YouTube using yt-dlp and verify the top results.
 
-    Returns a result dict containing at least: url, ok (bool), status (int|None), reason (str), and optional error/title info.
+    Performs a ytsearch for up to max_results entries, then attempts to fetch
+    metadata for each candidate in order. Returns a dict with keys
+    (matched_url, title, length, result_index) for the first verified result,
+    or None if no verified candidate is found.
+    """
+    if ytdlp is None:
+        return None
+    if ydl_opts is None:
+        ydl_opts = {"quiet": True}
+    try:
+        with ytdlp.YoutubeDL(ydl_opts) as ydl:
+            q = f"ytsearch{max_results}:{search_query}"
+            sres = ydl.extract_info(q, download=False)
+        # yt-dlp may return a dict containing 'entries' or a list directly
+        if isinstance(sres, dict):
+            entries = sres.get("entries") or []
+        elif isinstance(sres, list):
+            entries = sres
+        else:
+            entries = []
+
+        # Debug: report how many entries we received
+        try:
+            n_entries = len(entries)
+        except Exception:
+            n_entries = 0
+        print(f"[search] > Search returned {n_entries} candidate(s) for query: {search_query}")
+
+        if not entries:
+            print(f"[search] > No candidates found for query: {search_query}")
+            return None
+
+        width = len(str(max_results))
+        for i, info in enumerate(entries[:max_results], start=1):
+            candidate = info.get("webpage_url") if isinstance(info, dict) else None
+            if not candidate:
+                # fallback to id if present
+                vid = (info.get('id') if isinstance(info, dict) else None)
+                if vid:
+                    candidate = f"https://www.youtube.com/watch?v={vid}"
+                else:
+                    # skip malformed entry
+                    print(f"[{str(i).rjust(width)}/{max_results}] > Skipping malformed search entry")
+                    continue
+
+            # logging for enumeration and candidate info
+            title_hint = info.get("title") if isinstance(info, dict) else "(no title)"
+            print(f"[{str(i).rjust(width)}/{max_results}] > Trying candidate: {candidate} ({title_hint})")
+            # Verify availability by attempting to fetch metadata for the candidate
+            try:
+                with ytdlp.YoutubeDL(ydl_opts) as ydl:
+                    vinfo = ydl.extract_info(candidate, download=False)
+                title = vinfo.get("title")
+                duration = vinfo.get("duration")
+                print(f"[{str(i).rjust(width)}/{max_results}] > Verified: {candidate} ({title})")
+                return {"matched_url": candidate, "title": title, "length": duration, "result_index": i}
+            except Exception as ve:
+                # candidate failed; log and try the next one
+                print(f"[{str(i).rjust(width)}/{max_results}] > Candidate failed verification: {candidate} ({ve})")
+                continue
+    except Exception as se:
+        print(f"[search] > Search failed for query: {search_query} ({se})")
+        return None
+    return None
+
+
+def check_video(url: str, search_query: str = None):
+    """Use yt-dlp to fetch video metadata. If direct lookup fails and a search_query
+    is provided, attempt a ytsearch and verify the top results using
+    search_and_verify().
+
+    Returns a result dict containing at least: url, ok (bool), status (int|None), reason (str),
+    and optional error/title/matched_url info.
     """
     if ytdlp is None:
         return {"url": url, "ok": False, "status": None, "reason": "yt_dlp_missing", "error": "yt-dlp is not installed. Run: pip install yt-dlp"}
@@ -148,11 +223,58 @@ def check_video(url: str):
     except Exception as e:
         err = str(e)
         low = err.lower()
+        # If we have a search query, try a ytsearch and verify top results
+        if search_query:
+            matched = search_and_verify(search_query, max_results=5, ydl_opts=ydl_opts)
+            if matched:
+                # Return a successful result pointing to the verified match
+                return {
+                    "url": url,
+                    "ok": True,
+                    "status": 200,
+                    "reason": "matched_by_search_verified",
+                    "matched_url": matched.get("matched_url"),
+                    "title": matched.get("title"),
+                    "length": matched.get("length"),
+                    "search_query": search_query,
+                    "search_result_index": matched.get("result_index"),
+                }
+
         if "unavailable" in low or "not available" in low or "private" in low or "removed" in low:
             reason = "video_unavailable"
         else:
             reason = "yt_dlp_error"
         return {"url": url, "ok": False, "status": None, "reason": reason, "error": err}
+
+
+def make_search_query(row_text: str) -> str | None:
+    """Create a concise search query from a CSV row text by removing URLs and extra noise.
+
+    Returns None if resulting query is empty.
+    """
+    if not row_text:
+        return None
+    # remove URLs
+    text = re.sub(r"https?://\S+", "", row_text)
+    # remove youtube tokens and common punctuation
+    text = re.sub(r"youtu\.be|youtube\.com|www\.|\(.*?\)", "", text, flags=re.I)
+    # replace non-word characters with spaces
+    text = re.sub(r"[^\w\s'-]", " ", text)
+    # collapse whitespace
+    text = re.sub(r"\s+", " ", text).strip()
+    # if we have a CSV-like 'title, artist' structure, prefer first two fields
+    parts = [p.strip() for p in text.split(',') if p.strip()]
+    if len(parts) >= 2:
+        q = f"{parts[0]} {parts[1]}"
+    elif parts:
+        q = parts[0]
+    else:
+        q = text
+    q = q.strip()
+    if not q:
+        return None
+    # limit length
+    return q[:200]
 
 
 def main():
@@ -182,11 +304,11 @@ def main():
         print("Duplicate title+artist entries detected within a single file. Aborting.", file=sys.stderr)
         sys.exit(3)
 
-    url_map = defaultdict(list)  # normalized -> list of source files
+    url_map = defaultdict(list)  # normalized -> list of source dicts
     for p in found:
-        for url, src in extract_urls_from_csv(p):
+        for url, src, rownum, row_text in extract_urls_from_csv(p):
             norm = normalize_url(url, youtube_pat)
-            url_map[norm].append({"raw": url, "file": src})
+            url_map[norm].append({"raw": url, "file": src, "rownum": rownum, "row_text": row_text})
 
     print(f"Found {len(url_map)} unique YouTube urls")
 
@@ -194,11 +316,43 @@ def main():
     width = len(str(total))
 
     results = []
+    corrections_map = defaultdict(list)  # file -> list of corrections
     for idx, (url, sources) in enumerate(url_map.items(), start=1):
         counter = f"[{str(idx).rjust(width)}/{total}]"
         print(f"{counter} Checking: {url}")
-        res = check_video(url)
+        # Use the first source's row_text as a search query if the direct lookup fails
+        search_query = None
+        if sources and sources[0].get("row_text"):
+            # sanitize the row_text into a concise search query
+            search_query = make_search_query(sources[0]["row_text"])
+            if search_query:
+                print(f"{counter} Using search query: {search_query[:120]}")
+
+        res = check_video(url, search_query=search_query)
         res["sources"] = sources
+
+        # If the check produced a matched_url different from the original normalized url, record corrections
+        matched = res.get("matched_url")
+        if matched and matched != url:
+            print(f"  -> Suggested match found: {matched} ({res.get('title')})")
+            for s in sources:
+                corrections_map[s["file"]].append({
+                    "rownum": s.get("rownum"),
+                    "row_text": s.get("row_text"),
+                    "original_url": s.get("raw"),
+                    "matched_url": matched,
+                    "matched_title": res.get("title"),
+                    "matched_length": res.get("length"),
+                })
+        else:
+            # If no matched URL was produced, notify immediately
+            if not matched and not res.get("ok"):
+                reason = res.get("reason")
+                err = res.get("error", "")
+                print(f"  -> No suggested match found for {url} (reason: {reason})")
+                if err:
+                    print(f"     error: {err}")
+
         results.append(res)
         # polite delay
         time.sleep(0.5)
@@ -212,12 +366,25 @@ def main():
 
     with csv_path.open("w", encoding="utf-8", newline="") as cf:
         writer = csv.writer(cf)
-        writer.writerow(["url", "ok", "status", "reason", "sources_count", "sources_files_sample"])
+        writer.writerow(["url", "ok", "status", "reason", "sources_count", "sources_files_sample", "matched_url", "matched_title"])
         for r in results:
             files = ", ".join({s['file'] for s in r.get('sources', [])})
-            writer.writerow([r.get("url"), r.get("ok"), r.get("status"), r.get("reason"), len(r.get("sources", [])), files])
+            writer.writerow([
+                r.get("url"), r.get("ok"), r.get("status"), r.get("reason"), len(r.get("sources", [])), files,
+                r.get("matched_url", ""), r.get("title", ""),
+            ])
 
     print(f"Reports written: {json_path} and {csv_path}")
+
+    # Print summary of corrections with CSV lines per file
+    if corrections_map:
+        print("\nCorrections found for the following files:")
+        for fn, items in corrections_map.items():
+            print(f"\n{fn}:")
+            for it in items:
+                print(f"  row {it['rownum']}: {it['row_text']} -> {it['matched_url']} ({it.get('matched_title')})")
+    else:
+        print("No suggested corrections found.")
 
 
 if __name__ == '__main__':
