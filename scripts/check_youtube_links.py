@@ -67,6 +67,69 @@ def normalize_url(url: str, youtube_pat: re.Pattern) -> str:
     return f"https://www.youtube.com/watch?v={vid}"
 
 
+# New precheck: detect duplicate (title, artist) within the same CSV file.
+def precheck_duplicates(csv_paths):
+    """Return True if no duplicates found. If duplicates are found, print row numbers and row contents and return False.
+
+    Behavior:
+    - Looks for header columns that indicate title and artist (case-insensitive).
+    - If a file does not contain identifiable title/artist columns, the file is skipped with an informational message.
+    - Duplicates across different files are allowed; duplicates inside the same file cause failure.
+    """
+    any_duplicates = False
+    title_keys = ("title", "song", "track")
+    artist_keys = ("artist", "performer", "band", "composer")
+
+    for p in csv_paths:
+        try:
+            with p.open("r", encoding="utf-8", errors="replace") as f:
+                reader = csv.reader(f)
+                rows = list(reader)
+        except Exception as e:
+            print(f"Failed to read {p}: {e}", file=sys.stderr)
+            continue
+
+        if not rows:
+            continue
+
+        header = rows[0]
+        hdr_lower = [h.lower() for h in header]
+        title_idx = None
+        artist_idx = None
+        for i, h in enumerate(hdr_lower):
+            if title_idx is None and any(k in h for k in title_keys):
+                title_idx = i
+            if artist_idx is None and any(k in h for k in artist_keys):
+                artist_idx = i
+            if title_idx is not None and artist_idx is not None:
+                break
+
+        if title_idx is None or artist_idx is None:
+            # No clear title/artist header found; skip duplicate check for this file.
+            print(f"Skipping duplicate check for {p} (no title/artist header detected)")
+            continue
+
+        mapping = defaultdict(list)  # (title_lower, artist_lower) -> list of (rownum, row)
+        for idx, row in enumerate(rows[1:], start=2):
+            # Safely get cell values by index
+            t = row[title_idx].strip() if len(row) > title_idx else ""
+            a = row[artist_idx].strip() if len(row) > artist_idx else ""
+            key = (t.lower(), a.lower())
+            mapping[key].append((idx, row))
+
+        file_duplicates = {k: v for k, v in mapping.items() if len(v) > 1}
+        if file_duplicates:
+            any_duplicates = True
+            print(f"Duplicate title+artist found in {p}:")
+            for k, occ in file_duplicates.items():
+                for rownum, row in occ:
+                    # join row cells to a single printable string
+                    line = ", ".join(row)
+                    print(f"{rownum} | {line}")
+
+    return not any_duplicates
+
+
 def check_video(url: str):
     """Use yt-dlp to fetch video metadata. No HTTP fallback.
 
@@ -113,6 +176,11 @@ def main():
 
     found = list(find_csv_files(root, args.glob))
     print(f"Found {len(found)} CSV files (glob={args.glob})")
+
+    # Run duplicate-title+artist precheck. Duplicates inside the same file are not permitted.
+    if not precheck_duplicates(found):
+        print("Duplicate title+artist entries detected within a single file. Aborting.", file=sys.stderr)
+        sys.exit(3)
 
     url_map = defaultdict(list)  # normalized -> list of source files
     for p in found:
