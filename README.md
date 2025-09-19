@@ -1,7 +1,8 @@
-# SongSeeker Card Generator
+# SongSeeker Card Generator - Extended Edition
 
-## Introduction
-The SongSeeker Card Generator is a Python script designed to create visual cards based on song data. This tool is part of the [SongSeeker project](https://github.com/andygruber/songseeker), a music guessing game.
+An extended fork for the [SongSeeker project](https://github.com/andygruber/songseeker).
+
+The SongSeeker Card Generator is a Python script designed to create visual cards based on song data. 
 
 ## Features
 - Generate visual cards for songs.
