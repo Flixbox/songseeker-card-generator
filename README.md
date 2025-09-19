@@ -1,6 +1,6 @@
 # SongSeeker Card Generator - Extended Edition
 
-An extended fork for the [SongSeeker project](https://github.com/andygruber/songseeker).
+An extended community fork for the [SongSeeker project](https://github.com/andygruber/songseeker).
 
 The SongSeeker Card Generator is a Python script designed to create visual cards based on song data. 
 
