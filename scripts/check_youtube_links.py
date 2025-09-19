@@ -29,13 +29,13 @@ except Exception:
     ytdlp = None
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CSV_GLOB = "**/*.csv"
-YOUTUBE_PAT = re.compile(r"https?://(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/)([A-Za-z0-9_-]{11})")
+DEFAULT_CSV_GLOB = "**/*.csv"
+DEFAULT_YOUTUBE_REGEX = r"https?://(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/)([A-Za-z0-9_-]{11})"
 TIMEOUT = 15
 
 
-def find_csv_files(root: Path):
-    for p in root.glob(CSV_GLOB):
+def find_csv_files(root: Path, csv_glob: str = DEFAULT_CSV_GLOB):
+    for p in root.glob(csv_glob):
         if p.is_file():
             yield p
 
@@ -58,9 +58,9 @@ def extract_urls_from_csv(path: Path):
     return urls
 
 
-def normalize_url(url: str) -> str:
+def normalize_url(url: str, youtube_pat: re.Pattern) -> str:
     # extract the video id and return canonical youtube watch url
-    m = YOUTUBE_PAT.search(url)
+    m = youtube_pat.search(url)
     if not m:
         return url
     vid = m.group(1)
@@ -97,19 +97,27 @@ def main():
     ap.add_argument("--root", default=str(REPO_ROOT), help="Repository root to scan")
     ap.add_argument("--output", default=str(Path(__file__).parent / "output_reports"), help="Output folder for reports")
     ap.add_argument("--concurrency", type=int, default=6, help="Parallel requests (not implemented; reserved)")
+    ap.add_argument("--glob", default=DEFAULT_CSV_GLOB, help="Glob pattern to find CSV files (default '**/*.csv')")
+    ap.add_argument("--youtube-regex", default=DEFAULT_YOUTUBE_REGEX, help="Regex to extract YouTube video id (must contain a capturing group for the id)")
     args = ap.parse_args()
 
     root = Path(args.root)
     out_dir = Path(args.output)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    found = list(find_csv_files(root))
-    print(f"Found {len(found)} CSV files")
+    try:
+        youtube_pat = re.compile(args.youtube_regex)
+    except re.error as e:
+        print(f"Invalid youtube-regex: {e}", file=sys.stderr)
+        sys.exit(2)
+
+    found = list(find_csv_files(root, args.glob))
+    print(f"Found {len(found)} CSV files (glob={args.glob})")
 
     url_map = defaultdict(list)  # normalized -> list of source files
     for p in found:
         for url, src in extract_urls_from_csv(p):
-            norm = normalize_url(url)
+            norm = normalize_url(url, youtube_pat)
             url_map[norm].append({"raw": url, "file": src})
 
     print(f"Found {len(url_map)} unique YouTube urls")

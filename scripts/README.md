@@ -16,6 +16,12 @@ Installing dependencies:
 
 Follow the root readme file to install all dependencies.
 
+Example with glob pattern:
+
+```bash
+python "scripts/check_youtube_links.py" --glob "data/music-2010s.csv"
+```
+
 # Alternatively, if you want to use pafy's internal backend (not recommended), set this env var before running:
 # On PowerShell (Windows):
 # $env:PAFY_BACKEND = "internal"
