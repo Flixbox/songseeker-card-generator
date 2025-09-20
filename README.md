@@ -77,7 +77,7 @@ python .\generatePlayCards.py .\data\example-youtube-songs.csv .\example.pdf --n
 ```
 
 ```bash
-python generatePlayCards.py data/anime-2010s.csv output.pdf --no-mirror-backside --front-bg ./data/songseeker-frame-tall.jpeg --back-bg ./data/songseeker-frame-tall.jpeg --qr-padding-px 10 --shrink-front 20 --shrink-back 20 --fix-csv
+python generatePlayCards.py data/music-2010s.csv output.pdf --no-mirror-backside --front-bg ./data/songseeker-frame-tall.jpeg --back-bg ./data/songseeker-frame-tall.jpeg --qr-padding-px 10 --shrink-front 20 --shrink-back 20 --fix-csv
 ```
 
 Note on QR padding: By default, QR codes include a 4-module quiet zone for reliable scanning. With default QR sizing, this is about 40px. The `--qr-padding-px` option lets you shrink this (for tighter layout), but setting it too low may reduce scan reliability on some devices.
