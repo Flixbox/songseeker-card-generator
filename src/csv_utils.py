@@ -4,7 +4,9 @@ The dataset used for generation may have been altered by pre-checks (deduplicati
 so corrections produced by `validate_dataframe_urls` reference row indices from the
 in-memory deduped DataFrame. This module provides logic to locate the matching
 row(s) in the original CSV by artist/title (or fallback to URL matching) and
-replace the full row with the corrected values.
+replace the full row with the corrected values. It also supports removal
+instructions (action == 'remove_row') so duplicate-removal performed during
+pre-checks can be persisted to the original CSV when requested.
 """
 from __future__ import annotations
 
@@ -33,11 +35,15 @@ def write_corrections_to_csv(
 ) -> List[Dict[str, Any]]:
     """Apply corrections to the CSV file on disk.
 
+    Supports two kinds of corrections in the provided list:
+      - URL replacement corrections (produced by validate_dataframe_urls):
+          { 'row_index': <index in deduped_df>, 'original_url': ..., 'matched_url': ..., ... }
+      - Duplicate-removal actions (produced by pre-check):
+          { 'action': 'remove_row', 'disk_row_index': <index in original CSV>, 'reason': 'duplicate_removed' }
+
     Args:
         csv_path: path to the original CSV file to modify in-place.
-        corrections: list of dicts as returned by validate_dataframe_urls. Each
-            correction must include 'row_index' (index in deduped_df) and
-            'matched_url'.
+        corrections: list of correction/action dicts.
         deduped_df: the DataFrame used when producing corrections (after
             pre-check/deduplication). Used to look up artist/title values for
             locating the correct row in the on-disk CSV.
@@ -67,11 +73,31 @@ def write_corrections_to_csv(
     acol, tcol = _find_key_columns(list(original.columns))
 
     applied = []
+    # Collect disk indices to remove (for duplicate removals)
+    disk_remove_indices = set()
 
     for corr in corrections:
+        # Handle explicit remove_row actions first
+        if corr.get("action") == "remove_row":
+            disk_idx = corr.get("disk_row_index")
+            if disk_idx is None:
+                continue
+            # Only remove if that index exists in the disk CSV
+            if int(disk_idx) in original.index:
+                disk_remove_indices.add(int(disk_idx))
+                applied.append({"disk_row_index": int(disk_idx), "action": "remove_row", "reason": corr.get("reason")})
+            else:
+                logger.warning("Requested removal of disk row %s but it does not exist in CSV", disk_idx)
+            continue
+
+        # Otherwise treat as a URL replacement correction
         dedup_idx = corr.get("row_index")
         matched_url = corr.get("matched_url")
         original_url = corr.get("original_url")
+
+        if dedup_idx is None:
+            logger.warning("Skipping malformed correction entry (missing row_index): %s", corr)
+            continue
 
         try:
             dedup_row = deduped_df.loc[dedup_idx]
@@ -121,7 +147,18 @@ def write_corrections_to_csv(
                     original.at[disk_idx, col] = str(dedup_row.get(col))
         applied.append({"disk_row_index": int(disk_idx), "deduped_row_index": int(dedup_idx), "matched_url": matched_url})
 
-    if not applied:
+    # Apply removals to the disk DataFrame if any
+    if disk_remove_indices:
+        # Only drop indices that still exist in the DataFrame (guard against index changes)
+        to_drop = [i for i in disk_remove_indices if i in original.index]
+        if to_drop:
+            logger.info("Removing %d duplicate row(s) from CSV: %s", len(to_drop), to_drop)
+            try:
+                original = original.drop(index=to_drop)
+            except Exception:
+                logger.exception("Failed to drop duplicate rows from CSV in-memory")
+
+    if not applied and not disk_remove_indices:
         logger.info("No rows were updated in CSV after attempting matches.")
         return []
 

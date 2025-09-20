@@ -51,6 +51,9 @@ def search_and_verify(search_query: str, max_results: int = 5, ydl_opts: Optiona
         return None
     if ydl_opts is None:
         ydl_opts = {"quiet": True}
+
+    logger.info("Starting search query: %s", search_query)
+
     try:
         with ytdlp.YoutubeDL(ydl_opts) as ydl:
             q = f"ytsearch{max_results}:{search_query}"
@@ -67,7 +70,7 @@ def search_and_verify(search_query: str, max_results: int = 5, ydl_opts: Optiona
         except Exception:
             n_entries = 0
         if logger:
-            logger.debug("[search] returned %d candidate(s) for query: %s", n_entries, search_query)
+            logger.info("[search] returned %d candidate(s) for query: %s", n_entries, search_query)
 
         if not entries:
             return None

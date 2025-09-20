@@ -44,8 +44,13 @@ def main(
     # Run pre-checks (deduplication) before any link validation
     logger = logging.getLogger(__name__)
     data, removed_count, removed_indices = remove_duplicates(data, subset=None, keep="first", logger=logger)
+    # Build initial corrections list containing duplicate removal actions so they are persisted when --fix-csv is used
+    initial_corrections = []
     if removed_count:
         logger.info("Removed %d duplicate rows during pre-check. Remaining rows: %d", removed_count, len(data))
+        for ridx in removed_indices:
+            # these indices refer to the original DataFrame row indices that were removed by deduplication
+            initial_corrections.append({"action": "remove_row", "disk_row_index": int(ridx), "reason": "duplicate_removed"})
 
     # Handle background images and page/card size
     front_bg_img = None
@@ -90,10 +95,13 @@ def main(
     logger = logging.getLogger(__name__)
     if fix_links:
         logger.info("Starting link validation pre-check...")
-        results, corrections = validate_dataframe_urls(data, url_column="URL", logger=logger)
+        results, link_corrections = validate_dataframe_urls(data, url_column="URL", logger=logger)
+        # Merge duplicate removal corrections (from pre-check) with link corrections so both are applied to CSV when requested
+        corrections = list(initial_corrections) + list(link_corrections)
+
         if corrections:
-            logger.info("Applied %d corrections to URLs before PDF generation.", len(corrections))
-            logger.info("Replacements applied:")
+            logger.info("Applied %d corrections to URLs/rows before PDF generation.", len(corrections))
+            logger.info("Replacements / actions applied:")
 
             # Build a mapping of lowercase column name -> actual column name for flexible lookups
             lcmap = {col.lower(): col for col in data_original.columns}
@@ -112,6 +120,13 @@ def main(
             ycol = find_col(year_candidates)
 
             for corr in corrections:
+                # Handle duplicate removal preview
+                if corr.get("action") == "remove_row":
+                    disk_idx = corr.get("disk_row_index")
+                    logger.info("Duplicate removed from original CSV: disk row index %s", disk_idx)
+                    continue
+
+                # Otherwise treat as URL replacement correction (backwards compatible)
                 idx = corr.get("row_index")
                 orig_url = corr.get("original_url")
                 new_url = corr.get("matched_url")
