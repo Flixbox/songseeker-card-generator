@@ -194,3 +194,31 @@ def main(
         c.showPage()
 
     c.save()
+
+    # Log a short summary with input/output paths and generation statistics
+    try:
+        total_cards = len(data)
+    except Exception:
+        total_cards = 0
+
+    try:
+        pages_per_side = (total_cards + boxes_per_page - 1) // boxes_per_page if boxes_per_page else 0
+        total_pages = pages_per_side * 2  # front and back pages
+    except Exception:
+        pages_per_side = 0
+        total_pages = 0
+
+    logger = logging.getLogger(__name__)
+    logger.info(
+        "🎉 PDF generation complete!\n\n"
+        "📥 Input: %s\n"
+        "📤 Output: %s\n"
+        "🧾 Cards: %d\n"
+        "📦 Boxes/page: %d\n"
+        "📄 Pages (total): %d",
+        csv_file_path,
+        output_pdf_path,
+        total_cards,
+        boxes_per_page,
+        total_pages,
+    )
