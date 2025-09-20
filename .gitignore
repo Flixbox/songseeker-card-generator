@@ -163,3 +163,4 @@ cython_debug/
 output.pdf
 example.pdf
 *output_reports*
+*.bak
