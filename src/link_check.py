@@ -146,19 +146,49 @@ def check_video(url: str, search_query: Optional[str] = None, logger: Optional[l
                 info = ytm.get_song(vid)
                 title = None
                 duration = None
+
+                # Determine if the returned metadata represents a video rather than a song.
+                is_video = False
                 if isinstance(info, dict):
+                    # Check microformat/schema hints
+                    mf = info.get("microformat", {}).get("microformatDataRenderer") if info.get("microformat") else None
+                    schema = None
+                    if isinstance(mf, dict):
+                        schema = mf.get("schemaDotOrgType") or mf.get("schema.orgType") or mf.get("schemaDotOrgType")
+                    if schema and "VideoObject" in str(schema):
+                        is_video = True
+
+                    # Check videoDetails for video-specific flags
                     vd = info.get("videoDetails") or {}
-                    title = vd.get("title") or None
-                    ls = vd.get("lengthSeconds")
+                    if vd.get("isLiveContent"):
+                        is_video = True
+                    # musicVideoType indicates music video / uploaded track
+                    if vd.get("musicVideoType"):
+                        is_video = True
+
+                    # Populate title/duration if available
+                    title = vd.get("title") or info.get("title")
+                    ls = vd.get("lengthSeconds") or vd.get("durationSeconds")
                     if ls:
                         try:
                             duration = int(ls)
                         except Exception:
                             duration = None
-                # fallback to None if not found
-                if logger:
-                    logger.info("URL OK: %s (%s)", url, title)
-                return {"url": url, "ok": True, "status": 200, "reason": "ytmusic_ok", "title": title, "length": duration}
+
+                else:
+                    title = None
+                    duration = None
+
+                if is_video:
+                    # Treat as invalid for our music-only requirement and fall through to search-based replacement
+                    if logger:
+                        logger.info("URL appears to be a video (not a song): %s (%s)", url, title)
+                    # Do not return success here; allow search-based match below
+                else:
+                    # Valid song
+                    if logger:
+                        logger.info("URL OK: %s (%s)", url, title)
+                    return {"url": url, "ok": True, "status": 200, "reason": "ytmusic_ok", "title": title, "length": duration}
             except Exception as e:
                 err = str(e)
                 if logger:
