@@ -11,9 +11,9 @@ import re
 from typing import Optional, Dict, Any, List
 
 try:
-    import yt_dlp as ytdlp
+    from ytmusicapi import YTMusic
 except Exception:
-    ytdlp = None
+    YTMusic = None
 
 DEFAULT_YOUTUBE_REGEX = r"https?://(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/)([A-Za-z0-9_-]{11})"
 
@@ -46,56 +46,65 @@ def make_search_query(row_text: str) -> Optional[str]:
     return q[:200]
 
 
-def search_and_verify(search_query: str, max_results: int = 5, ydl_opts: Optional[dict] = None, logger: Optional[logging.Logger] = None) -> Optional[Dict[str, Any]]:
-    if ytdlp is None:
+def search_and_verify(search_query: str, max_results: int = 5, logger: Optional[logging.Logger] = None) -> Optional[Dict[str, Any]]:
+    """Search YouTube Music for songs and verify a candidate using YTMusic.get_song.
+
+    Limits the search to music (songs only) as requested.
+    """
+    if YTMusic is None:
         return None
-    if ydl_opts is None:
-        ydl_opts = {"quiet": True}
+
+    if logger is None:
+        logger = logging.getLogger(__name__)
 
     logger.info("Starting search query: %s", search_query)
 
     try:
-        with ytdlp.YoutubeDL(ydl_opts) as ydl:
-            q = f"ytsearch{max_results}:{search_query}"
-            sres = ydl.extract_info(q, download=False)
-        if isinstance(sres, dict):
-            entries = sres.get("entries") or []
-        elif isinstance(sres, list):
-            entries = sres
-        else:
-            entries = []
-
-        try:
-            n_entries = len(entries)
-        except Exception:
-            n_entries = 0
-        if logger:
-            logger.info("[search] returned %d candidate(s) for query: %s", n_entries, search_query)
+        ytm = YTMusic()
+        entries = ytm.search(search_query, filter="songs", limit=max_results)
 
         if not entries:
             return None
 
-        width = len(str(max_results))
-        for i, info in enumerate(entries[:max_results], start=1):
-            candidate = info.get("webpage_url") if isinstance(info, dict) else None
-            if not candidate:
-                vid = (info.get('id') if isinstance(info, dict) else None)
-                if vid:
-                    candidate = f"https://www.youtube.com/watch?v={vid}"
-                else:
-                    if logger:
-                        logger.debug("Skipping malformed search entry")
-                    continue
+        n_entries = len(entries)
+        if logger:
+            logger.info("[search] returned %d candidate(s) for query: %s", n_entries, search_query)
 
+        for i, info in enumerate(entries[:max_results], start=1):
+            # Expecting a video id on song results
+            video_id = info.get("videoId") or info.get("videoId")
+            if not video_id:
+                if logger:
+                    logger.debug("Skipping malformed search entry")
+                continue
+
+            candidate = f"https://www.youtube.com/watch?v={video_id}"
             title_hint = info.get("title") if isinstance(info, dict) else "(no title)"
             if logger:
                 logger.info("Trying candidate %d/%d: %s (%s)", i, max_results, candidate, title_hint)
 
             try:
-                with ytdlp.YoutubeDL(ydl_opts) as ydl:
-                    vinfo = ydl.extract_info(candidate, download=False)
-                title = vinfo.get("title")
-                duration = vinfo.get("duration")
+                song = ytm.get_song(video_id)
+                # get_song returns nested metadata in a dict; try common keys
+                title = None
+                duration = None
+                if isinstance(song, dict):
+                    # common patterns: videoDetails.title and videoDetails.lengthSeconds
+                    vd = song.get("videoDetails") or {}
+                    title = vd.get("title") or info.get("title")
+                    length_seconds = vd.get("lengthSeconds")
+                    if length_seconds:
+                        try:
+                            duration = int(length_seconds)
+                        except Exception:
+                            duration = None
+                    # fallback: search result duration string
+                    if not duration:
+                        duration = info.get("duration")
+                else:
+                    title = info.get("title")
+                    duration = info.get("duration")
+
                 if logger:
                     logger.info("Verified candidate: %s (%s)", candidate, title)
                 return {"matched_url": candidate, "title": title, "length": duration, "result_index": i}
@@ -111,23 +120,54 @@ def search_and_verify(search_query: str, max_results: int = 5, ydl_opts: Optiona
 
 
 def check_video(url: str, search_query: Optional[str] = None, logger: Optional[logging.Logger] = None) -> Dict[str, Any]:
-    if ytdlp is None:
-        return {"url": url, "ok": False, "status": None, "reason": "yt_dlp_missing", "error": "yt-dlp is not installed. Run: pip install yt-dlp"}
+    """Validate a YouTube URL using ytmusicapi when possible.
 
-    ydl_opts = {"quiet": True}
+    If the direct lookup fails and a search query is provided, attempt to find
+    a matching song via the music-only search and return a suggested replacement.
+    """
+    if YTMusic is None:
+        return {"url": url, "ok": False, "status": None, "reason": "ytmusic_missing", "error": "ytmusicapi is not installed. Run: pip install ytmusicapi"}
+
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    # try to extract the video id from the URL
     try:
-        with ytdlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-        title = info.get("title")
-        duration = info.get("duration")
-        if logger:
-            logger.info("URL OK: %s (%s)", url, title)
-        return {"url": url, "ok": True, "status": 200, "reason": "yt_dlp_ok", "title": title, "length": duration}
-    except Exception as e:
-        err = str(e)
-        low = err.lower()
+        m = re.search(DEFAULT_YOUTUBE_REGEX, url)
+        vid = m.group(1) if m else None
+    except Exception:
+        vid = None
+
+    try:
+        ytm = YTMusic()
+        if vid:
+            # Try direct lookup
+            try:
+                info = ytm.get_song(vid)
+                title = None
+                duration = None
+                if isinstance(info, dict):
+                    vd = info.get("videoDetails") or {}
+                    title = vd.get("title") or None
+                    ls = vd.get("lengthSeconds")
+                    if ls:
+                        try:
+                            duration = int(ls)
+                        except Exception:
+                            duration = None
+                # fallback to None if not found
+                if logger:
+                    logger.info("URL OK: %s (%s)", url, title)
+                return {"url": url, "ok": True, "status": 200, "reason": "ytmusic_ok", "title": title, "length": duration}
+            except Exception as e:
+                err = str(e)
+                if logger:
+                    logger.warning("Direct lookup failed for %s (%s)", url, err)
+                # fall through to search-based matching
+
+        # If we reach here and a search_query is provided, try to find a match
         if search_query:
-            matched = search_and_verify(search_query, max_results=5, ydl_opts=ydl_opts, logger=logger)
+            matched = search_and_verify(search_query, max_results=5, logger=logger)
             if matched:
                 if logger:
                     logger.info("Matched by search: %s -> %s (%s)", url, matched.get("matched_url"), matched.get("title"))
@@ -143,13 +183,16 @@ def check_video(url: str, search_query: Optional[str] = None, logger: Optional[l
                     "search_result_index": matched.get("result_index"),
                 }
 
-        if "unavailable" in low or "not available" in low or "private" in low or "removed" in low:
-            reason = "video_unavailable"
-        else:
-            reason = "yt_dlp_error"
+        # If no match and direct lookup failed, determine reason
+        reason = "video_unavailable"
+        if logger:
+            logger.warning("URL check failed: %s (no match found)", url)
+        return {"url": url, "ok": False, "status": None, "reason": reason, "error": "no match found"}
+    except Exception as e:
+        err = str(e)
         if logger:
             logger.warning("URL check failed: %s (%s)", url, err)
-        return {"url": url, "ok": False, "status": None, "reason": reason, "error": err}
+        return {"url": url, "ok": False, "status": None, "reason": "ytmusic_error", "error": err}
 
 
 def validate_dataframe_urls(df, url_column: str = "URL", youtube_regex: str = DEFAULT_YOUTUBE_REGEX, logger: Optional[logging.Logger] = None):
