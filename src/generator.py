@@ -13,8 +13,9 @@ from . import fonts
 from .draw import draw_image_in_rect
 from .qr_utils import add_qr_code_within_rect
 from .text_boxes import add_text_box
-import logging
 from .link_check import validate_dataframe_urls
+from .precheck import remove_duplicates
+import logging
 
 
 def main(
@@ -37,6 +38,12 @@ def main(
         data = data.map(lambda x: x.strip() if isinstance(x, str) else x)
     except AttributeError:
         data = data.applymap(lambda x: x.strip() if isinstance(x, str) else x)
+
+    # Run pre-checks (deduplication) before any link validation
+    logger = logging.getLogger(__name__)
+    data, removed_count, removed_indices = remove_duplicates(data, subset=None, keep="first", logger=logger)
+    if removed_count:
+        logger.info("Removed %d duplicate rows during pre-check. Remaining rows: %d", removed_count, len(data))
 
     # Handle background images and page/card size
     front_bg_img = None
