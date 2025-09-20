@@ -15,6 +15,7 @@ from .qr_utils import add_qr_code_within_rect
 from .text_boxes import add_text_box
 from .link_check import validate_dataframe_urls
 from .precheck import remove_duplicates
+from .csv_utils import write_corrections_to_csv
 import logging
 
 
@@ -29,6 +30,7 @@ def main(
     shrink_front_pct: float = 0.0,
     shrink_back_pct: float = 0.0,
     fix_links: bool = False,
+    fix_csv: bool = False,
 ):
     # Ensure Unicode TrueType fonts are registered before drawing
     fonts.setup_unicode_fonts()
@@ -130,6 +132,15 @@ def main(
 
                 preview = ", ".join(preview_parts) if preview_parts else (matched_title or f"row {idx}")
                 logger.info("%s\n=> %s\n=> %s", preview, orig_url, new_url)
+
+            # If requested, write corrections back to the original CSV
+            if fix_csv:
+                try:
+                    applied = write_corrections_to_csv(csv_file_path, corrections, data, logger=logger)
+                    if applied:
+                        logger.info("Wrote %d corrections back to CSV: %s", len(applied), csv_file_path)
+                except Exception:
+                    logger.exception("Failed to write corrections to CSV")
         else:
             logger.info("No automatic corrections suggested by link validation.")
 

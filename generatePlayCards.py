@@ -21,7 +21,13 @@ if __name__ == "__main__":
     parser.add_argument("--shrink-front", type=float, default=0.0, help="Shrink percentage for front (QR) content area, 0-100. Example: 10 => 10% smaller (90% of original). Values are clamped to a safe minimum size.")
     parser.add_argument("--shrink-back", type=float, default=0.0, help="Shrink percentage for back (text) content area, 0-100. Example: 15 => 15% smaller. Values are clamped to a safe minimum size.")
     parser.add_argument("--fix-links", action="store_true", help="Perform YouTube link validation and try to auto-correct broken links before generating cards")
+    parser.add_argument("--fix-csv", action="store_true", help="Write automatic link corrections back to the input CSV file (implies --fix-links)")
     args = parser.parse_args()
+
+    # If fix_csv requested, ensure fix_links is enabled as well
+    if args.fix_csv:
+        args.fix_links = True
+
     mirror_backside = not args.no_mirror_backside
     # configure basic logging to console so users are kept up-to-date
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -36,4 +42,5 @@ if __name__ == "__main__":
         qr_padding_px=args.qr_padding_px,
         shrink_front_pct=args.shrink_front,
         shrink_back_pct=args.shrink_back,
+        fix_csv=args.fix_csv,
     )
