@@ -43,6 +43,7 @@ python .\generatePlayCards.py <input_csv_path> <output_pdf_path> [options]
 - `--qr-padding-px <int>`: Override the QR code quiet zone (white border) in pixels. QR spec recommends ~4 modules (~40px with default settings). Reducing too much may impact scan reliability.
 - `--shrink-front <percent>`: Shrink percentage for the front (QR) content area. Example: `10` makes content 10% smaller (90% of original inner area).
 - `--shrink-back <percent>`: Shrink percentage for the back (text) content area. Example: `15` makes content 15% smaller.
+- `--fix-links`: (Slow, ~5 seconds per link) Automatically pulls up each YouTube link to verify that the video exists. Replaces the QR code with the first live search result if the given link isn't a valid video.
 
 ### Example
 
@@ -75,7 +76,7 @@ python .\generatePlayCards.py .\data\example-youtube-songs.csv .\example.pdf --n
 ```
 
 ```bash
-python generatePlayCards.py data/anime-2010s.csv output.pdf --no-mirror-backside --front-bg ./data/songseeker-frame-tall.jpeg --back-bg ./data/songseeker-frame-tall.jpeg --qr-padding-px 10 --shrink-front 20 --shrink-back 20
+python generatePlayCards.py data/anime-2010s.csv output.pdf --no-mirror-backside --front-bg ./data/songseeker-frame-tall.jpeg --back-bg ./data/songseeker-frame-tall.jpeg --qr-padding-px 10 --shrink-front 20 --shrink-back 20 --fix-links
 ```
 
 Note on QR padding: By default, QR codes include a 4-module quiet zone for reliable scanning. With default QR sizing, this is about 40px. The `--qr-padding-px` option lets you shrink this (for tighter layout), but setting it too low may reduce scan reliability on some devices.

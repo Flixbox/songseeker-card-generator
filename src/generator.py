@@ -13,6 +13,8 @@ from . import fonts
 from .draw import draw_image_in_rect
 from .qr_utils import add_qr_code_within_rect
 from .text_boxes import add_text_box
+import logging
+from .link_check import validate_dataframe_urls
 
 
 def main(
@@ -25,6 +27,7 @@ def main(
     qr_padding_px: Optional[int] = None,
     shrink_front_pct: float = 0.0,
     shrink_back_pct: float = 0.0,
+    fix_links: bool = False,
 ):
     # Ensure Unicode TrueType fonts are registered before drawing
     fonts.setup_unicode_fonts()
@@ -70,6 +73,58 @@ def main(
         hpageindent = (page_width - (box_size * boxes_per_row)) / 2
 
     c = canvas.Canvas(output_pdf_path, pagesize=(page_width, page_height))
+
+    # Keep an original copy for printing replacement previews if link-fixes are applied
+    data_original = data.copy(deep=True)
+
+    # If requested, perform a pre-check of YouTube links and apply suggested corrections.
+    logger = logging.getLogger(__name__)
+    if fix_links:
+        logger.info("Starting link validation pre-check...")
+        results, corrections = validate_dataframe_urls(data, url_column="URL", logger=logger)
+        if corrections:
+            logger.info("Applied %d corrections to URLs before PDF generation.", len(corrections))
+            logger.info("Replacements applied:")
+
+            # Build a mapping of lowercase column name -> actual column name for flexible lookups
+            lcmap = {col.lower(): col for col in data_original.columns}
+            title_candidates = ("title", "song", "track")
+            artist_candidates = ("artist", "performer", "band", "composer")
+            year_candidates = ("year",)
+
+            def find_col(candidates):
+                for k in candidates:
+                    if k in lcmap:
+                        return lcmap[k]
+                return None
+
+            tcol = find_col(title_candidates)
+            acol = find_col(artist_candidates)
+            ycol = find_col(year_candidates)
+
+            for corr in corrections:
+                idx = corr.get("row_index")
+                orig_url = corr.get("original_url")
+                new_url = corr.get("matched_url")
+                matched_title = corr.get("matched_title") or ""
+
+                preview_parts = []
+                try:
+                    row = data_original.loc[idx]
+                    if acol and row.get(acol):
+                        preview_parts.append(str(row.get(acol)))
+                    if tcol and row.get(tcol):
+                        preview_parts.append(str(row.get(tcol)))
+                    if ycol and row.get(ycol):
+                        preview_parts.append(str(row.get(ycol)))
+                except Exception:
+                    # fall back to matched title or index
+                    pass
+
+                preview = ", ".join(preview_parts) if preview_parts else (matched_title or f"row {idx}")
+                logger.info("%s\n=> %s\n=> %s", preview, orig_url, new_url)
+        else:
+            logger.info("No automatic corrections suggested by link validation.")
 
     for i in range(0, len(data), boxes_per_page):
         # FRONT SIDE (QR)

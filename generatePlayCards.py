@@ -1,6 +1,7 @@
 import argparse
 import os
 import sys
+import logging
 
 
 # Ensure src/ is importable when running as a script
@@ -19,8 +20,11 @@ if __name__ == "__main__":
     parser.add_argument("--qr-padding-px", type=int, default=None, help="QR code white border thickness in pixels (quiet zone). Example: 10. Note: QR spec recommends ~4 modules (~40px with default settings); reducing too much may impact scan reliability.")
     parser.add_argument("--shrink-front", type=float, default=0.0, help="Shrink percentage for front (QR) content area, 0-100. Example: 10 => 10% smaller (90% of original). Values are clamped to a safe minimum size.")
     parser.add_argument("--shrink-back", type=float, default=0.0, help="Shrink percentage for back (text) content area, 0-100. Example: 15 => 15% smaller. Values are clamped to a safe minimum size.")
+    parser.add_argument("--fix-links", action="store_true", help="Perform YouTube link validation and try to auto-correct broken links before generating cards")
     args = parser.parse_args()
     mirror_backside = not args.no_mirror_backside
+    # configure basic logging to console so users are kept up-to-date
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     main(
         args.csv_file,
         args.output_pdf,
@@ -28,6 +32,7 @@ if __name__ == "__main__":
         mirror_backside,
         args.front_bg,
         args.back_bg,
+        fix_links=args.fix_links,
         qr_padding_px=args.qr_padding_px,
         shrink_front_pct=args.shrink_front,
         shrink_back_pct=args.shrink_back,
