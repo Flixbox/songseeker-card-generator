@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Optional
+from pathlib import Path
 
 import pandas as pd
 from PIL import Image
@@ -21,7 +22,7 @@ import logging
 
 def main(
     csv_file_path: str,
-    output_pdf_path: str,
+    output_pdf_path: Optional[str] = None,
     icon_path: Optional[str] = None,
     mirror_backside: bool = True,
     front_bg_path: Optional[str] = None,
@@ -86,18 +87,53 @@ def main(
         vpageindent = 0.8 * cm
         hpageindent = (page_width - (box_size * boxes_per_row)) / 2
 
-    c = canvas.Canvas(output_pdf_path, pagesize=(page_width, page_height))
+    # If output path not provided, create a default path under repo-root/output using the CSV file name
+    if not output_pdf_path:
+        repo_root = Path(__file__).resolve().parents[1]
+        output_dir = repo_root / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        csv_file_name = Path(csv_file_path).stem
+        output_pdf_path = output_dir / f"{csv_file_name}.pdf"
+
+    # Ensure the path is a string for reportlab
+    c = canvas.Canvas(str(output_pdf_path), pagesize=(page_width, page_height))
 
     # Keep an original copy for printing replacement previews if link-fixes are applied
     data_original = data.copy(deep=True)
 
+    # Track rows skipped during generation due to missing/malformed URLs
+    skipped_indices = []
+    url_col = "URL"
+    url_col_present = url_col in data.columns
+    # Determine initial count of missing/invalid URL entries
+    def _is_valid_url_val(v):
+        return isinstance(v, str) and v.strip() != ""
+
+    if url_col_present:
+        try:
+            initial_invalid = int((~data[url_col].apply(_is_valid_url_val)).sum())
+        except Exception:
+            initial_invalid = 0
+    else:
+        initial_invalid = len(data)
+
     # If requested, perform a pre-check of YouTube links and apply suggested corrections.
     logger = logging.getLogger(__name__)
     if fix_links:
+        logger.info("Attempting to auto-resolve %d missing/malformed URL(s)...", initial_invalid)
         logger.info("Starting link validation pre-check...")
-        results, link_corrections = validate_dataframe_urls(data, url_column="URL", logger=logger)
+        results, link_corrections = validate_dataframe_urls(data, url_column=url_col, logger=logger)
         # Merge duplicate removal corrections (from pre-check) with link corrections so both are applied to CSV when requested
         corrections = list(initial_corrections) + list(link_corrections)
+
+        # Count how many corrections filled previously-empty URLs
+        filled_missing = 0
+        for corr in link_corrections:
+            orig = corr.get("original_url")
+            if orig is None or orig == "":
+                filled_missing += 1
+        if filled_missing:
+            logger.info("Found and added links for %d previously-missing entries.", filled_missing)
 
         if corrections:
             logger.info("Applied %d corrections to URLs/rows before PDF generation.", len(corrections))
@@ -158,11 +194,25 @@ def main(
                     logger.exception("Failed to write corrections to CSV")
         else:
             logger.info("No automatic corrections suggested by link validation.")
+    else:
+        # If not fixing links, inform the user how many entries look malformed/missing and will be skipped
+        if initial_invalid:
+            logger.info("Note: %d entries have missing or malformed URLs and will be skipped unless --fix-links is used.", initial_invalid)
 
     for i in range(0, len(data), boxes_per_page):
         # FRONT SIDE (QR)
         for index in range(i, min(i + boxes_per_page, len(data))):
             row = data.iloc[index]
+            # determine the URL value safely
+            url_val = None
+            if url_col_present:
+                try:
+                    url_val = row.get(url_col)
+                except Exception:
+                    url_val = None
+
+            valid_url = _is_valid_url_val(url_val)
+
             if front_bg_img:
                 # Compute grid position
                 position_index = index % boxes_per_page
@@ -171,32 +221,42 @@ def main(
                 x = hpageindent + (column_index * card_width)
                 y = page_height - vpageindent - ((row_index + 1) * card_height)
                 draw_image_in_rect(c, front_bg_img, x, y, card_width, card_height)
-                add_qr_code_within_rect(
-                    c,
-                    row["URL"],
-                    (x, y),
-                    card_width,
-                    card_height,
-                    icon_path,
-                    qr_padding_px=qr_padding_px,
-                    shrink_pct=shrink_front_pct,
-                )
+
+                if valid_url:
+                    add_qr_code_within_rect(
+                        c,
+                        str(url_val),
+                        (x, y),
+                        card_width,
+                        card_height,
+                        icon_path,
+                        qr_padding_px=qr_padding_px,
+                        shrink_pct=shrink_front_pct,
+                    )
+                else:
+                    skipped_indices.append(index)
+                    logger.debug("Skipping QR for row %s: missing or malformed URL", index)
             else:
                 position_index = index % (boxes_per_row * boxes_per_column)
                 column_index = position_index % boxes_per_row
                 row_index = position_index // boxes_per_row
                 x = hpageindent + (column_index * box_size)
                 y = page_height - vpageindent - (row_index + 1) * box_size
-                add_qr_code_within_rect(
-                    c,
-                    row["URL"],
-                    (x, y),
-                    box_size,
-                    box_size,
-                    icon_path,
-                    qr_padding_px=qr_padding_px,
-                    shrink_pct=shrink_front_pct,
-                )
+
+                if valid_url:
+                    add_qr_code_within_rect(
+                        c,
+                        str(url_val),
+                        (x, y),
+                        box_size,
+                        box_size,
+                        icon_path,
+                        qr_padding_px=qr_padding_px,
+                        shrink_pct=shrink_front_pct,
+                    )
+                else:
+                    skipped_indices.append(index)
+                    logger.debug("Skipping QR for row %s: missing or malformed URL", index)
         c.showPage()
 
         # BACK SIDE (TEXT)
@@ -255,3 +315,7 @@ def main(
         boxes_per_page,
         total_pages,
     )
+
+    # If link-fixing was not enabled, report how many entries were skipped due to missing/malformed URLs
+    if not fix_links and skipped_indices:
+        logger.info("Note: %d entries were skipped for QR generation due to missing or malformed URLs. Use --fix-links to attempt automatic fixes.", len(skipped_indices))

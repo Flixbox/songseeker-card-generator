@@ -31,7 +31,11 @@ pip install -r requirements.txt
 To run the script, use the following command:
 
 ```bash
-python .\generatePlayCards.py <input_csv_path> <output_pdf_path> [options]
+python .\generatePlayCards.py <input_csv_path> [output_pdf_path] [options]
+```
+
+```
+[This is optional]
 ```
 
 ### Options
@@ -49,23 +53,23 @@ python .\generatePlayCards.py <input_csv_path> <output_pdf_path> [options]
 ### Example
 
 ```bash
-python .\generatePlayCards.py .\data\example-youtube-songs.csv .\example.pdf
+python .\generatePlayCards.py .\data\example-youtube-songs.csv
 ```
 
 You can also add an icon to the card by using the `--icon` flag:
 
 ```bash
 # Add icon from a URL
-python .\generatePlayCards.py .\data\example-youtube-songs.csv .\example.pdf --icon https://github.com/andygruber/songseeker/blob/main/icons/icon-96x96.png?raw=true
+python .\generatePlayCards.py .\data\example-youtube-songs.csv --icon https://github.com/andygruber/songseeker/blob/main/icons/icon-96x96.png?raw=true
 
 # Add icon from a local file
 python .\generatePlayCards.py .\data\example-youtube-songs.csv .\example.pdf --icon ..\songseeker\icons\icon-96x96.png
 
 # Reduce the white QR border (quiet zone) to ~10px
-python .\generatePlayCards.py .\data\example-youtube-songs.csv .\example.pdf --qr-padding-px 10
+python .\generatePlayCards.py .\data\example-youtube-songs.csv --qr-padding-px 10
 
 # Use custom front/back backgrounds (same size), custom QR padding, and shrink content areas
-python .\generatePlayCards.py .\data\example-youtube-songs.csv .\example.pdf `
+python .\generatePlayCards.py .\data\example-youtube-songs.csv `
 	--front-bg .\data\songseeker-qr.jpeg `
 	--back-bg .\data\songseeker-text.jpeg `
 	--qr-padding-px 40 `
@@ -73,11 +77,11 @@ python .\generatePlayCards.py .\data\example-youtube-songs.csv .\example.pdf `
 	--shrink-back 20
 
 # Disable backside mirroring (if you don't want mirrored text layout)
-python .\generatePlayCards.py .\data\example-youtube-songs.csv .\example.pdf --no-mirror-backside
+python .\generatePlayCards.py .\data\example-youtube-songs.csv --no-mirror-backside
 ```
 
 ```bash
-python generatePlayCards.py data/music-2010s.csv output.pdf --no-mirror-backside --front-bg ./data/songseeker-frame-tall.jpeg --back-bg ./data/songseeker-frame-tall.jpeg --qr-padding-px 10 --shrink-front 20 --shrink-back 20 --fix-csv
+python generatePlayCards.py data/music-2000s.csv --no-mirror-backside --front-bg ./data/songseeker-frame-tall.jpeg --back-bg ./data/songseeker-frame-tall.jpeg --qr-padding-px 10 --shrink-front 20 --shrink-back 20 --fix-csv
 ```
 
 Note on QR padding: By default, QR codes include a 4-module quiet zone for reliable scanning. With default QR sizing, this is about 40px. The `--qr-padding-px` option lets you shrink this (for tighter layout), but setting it too low may reduce scan reliability on some devices.

@@ -12,7 +12,7 @@ from src.generator import main
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("csv_file", help="Path to the CSV file")
-    parser.add_argument("output_pdf", help="Path to the output PDF file")
+    parser.add_argument("output_pdf", nargs="?", default=None, help="(Optional) Path to the output PDF file. If omitted, a default will be created under repo-root/output/<csv_filename>.pdf")
     parser.add_argument("--icon", help="path to icon to embedd to QR Code, should not exeed 300x300px and using transparent background", required=False)
     parser.add_argument("--no-mirror-backside", action="store_true", help="Disable mirroring on the backside (text side)")
     parser.add_argument("--front-bg", help="Path to background image for the front (QR) side", required=False)

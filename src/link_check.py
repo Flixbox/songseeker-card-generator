@@ -251,18 +251,37 @@ def validate_dataframe_urls(df, url_column: str = "URL", youtube_regex: str = DE
     results = []
     corrections = []
 
-    # Iterate over unique normalized URLs to avoid duplicate checks
-    urls = df[url_column].dropna().astype(str)
+    # Ensure the URL column can accept string replacements to avoid dtype warnings
+    try:
+        df[url_column] = df[url_column].astype(object)
+    except Exception:
+        # fallback: continue without casting
+        pass
+
     unique_norms = {}
-    for idx, raw in urls.items():
-        norm = normalize_url(raw, youtube_pat)
-        unique_norms.setdefault(norm, []).append((idx, raw))
+    for idx, raw in df[url_column].items():
+        # Normalize raw value and treat missing/empty values as unique per-row
+        if pd.isna(raw):
+            raw_str = ""
+        else:
+            raw_str = str(raw).strip()
+
+        if not raw_str:
+            # Use a per-row placeholder key for empty/missing URLs so each row can be
+            # searched/verified independently instead of being grouped together.
+            key = f"__ROW_EMPTY__:{idx}"
+        else:
+            key = normalize_url(raw_str, youtube_pat)
+
+        unique_norms.setdefault(key, []).append((idx, raw_str))
 
     total = len(unique_norms)
     logger.info("Checking %d unique URL(s)", total)
 
     for i, (norm, occurrences) in enumerate(unique_norms.items(), start=1):
-        logger.info("[%d/%d] Checking: %s", i, total, norm)
+        # If this is a per-row placeholder (empty URL), display an empty string in logs
+        display_norm = "" if str(norm).startswith("__ROW_EMPTY__:") else norm
+        logger.info("[%d/%d] Checking: %s", i, total, display_norm)
         row_text = None
         # try to build a search_query from one of the CSV rows if possible
         # pick the first occurrence's row text if other columns exist
@@ -281,7 +300,9 @@ def validate_dataframe_urls(df, url_column: str = "URL", youtube_regex: str = DE
         if search_query:
             logger.debug("Using search query: %s", search_query)
 
-        res = check_video(norm, search_query=search_query, logger=logger)
+        # Pass an empty string to check_video when handling placeholder keys
+        input_url_for_check = "" if str(norm).startswith("__ROW_EMPTY__:") else norm
+        res = check_video(input_url_for_check, search_query=search_query, logger=logger)
         results.append(res)
 
         matched = res.get("matched_url")
