@@ -47,8 +47,10 @@ python .\generatePlayCards.py <input_csv_path> [output_pdf_path] [options]
 - `--qr-padding-px <int>`: Override the QR code quiet zone (white border) in pixels. QR spec recommends ~4 modules (~40px with default settings). Reducing too much may impact scan reliability.
 - `--shrink-front <percent>`: Shrink percentage for the front (QR) content area. Example: `10` makes content 10% smaller (90% of original inner area).
 - `--shrink-back <percent>`: Shrink percentage for the back (text) content area. Example: `15` makes content 15% smaller.
-- `--fix-links`: (Slow, ~2 seconds per link) Automatically pulls up each YouTube link to verify that the video exists. Replaces the QR code with the first live search result if the given link isn't a valid video. Only works with songs (restricted to songs only to avoid video noise).
-- `--fix-csv`: (Slow, ~2 seconds per link) Includes `--fix-links`. Also fix any mistakes in the csv (updates links, removes duplicates). **Protip: If you provide this parameter, you don't need to add any links in your CSV.**
+- `--fix-links`: (Slow, ~5-10 seconds per link) Automatically pulls up each YouTube link to verify that the video exists. Replaces the QR code with the first live search result if the given link isn't a valid video. Only works with songs (restricted to songs only to avoid video noise).
+- `--fix-csv`: (Slow, ~5-10 seconds per link) Includes `--fix-links`. Also fix any mistakes in the csv (updates links, removes duplicates). **Protip: If you provide this parameter, you don't need to add any links in your CSV.**
+
+The `fix` parameters will also fix the year for every song by searching musicbrainz.
 
 ### Example
 

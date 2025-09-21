@@ -134,34 +134,50 @@ def check_and_fix_years(
                 rgs = []
 
             found_year = None
-            # Try to find the first sensible year from results
+            # Collect candidate years from release-groups and releases and choose the earliest
+            candidate_years: list[int] = []
             for rg in rgs:
-                # musicbrainzngs often uses 'first-release-date'
+                # release-group may expose a first release date
                 date = rg.get("first-release-date") or rg.get("first_release_date") or rg.get("firstrelease-date")
-                if not date:
-                    # as a fallback try to fetch detailed release info from release-group
-                    gid = rg.get("id")
-                    if gid:
-                        try:
-                            rg_full = musicbrainzngs.get_release_group_by_id(gid, includes=["releases"]) or {}
-                            releases = rg_full.get("release-group", {}).get("release-list") or []
-                            # pick the earliest release with a date
-                            for rel in releases:
-                                rdate = rel.get("date") or rel.get("release-date")
-                                if rdate:
-                                    date = rdate
-                                    break
-                        except Exception:
-                            pass
                 if date:
-                    # date may be YYYY-MM-DD or YYYY
+                    y = _parse_year(date)
+                    if y:
+                        candidate_years.append(y)
+
+                # As a fallback fetch detailed release info from the release-group and collect all release dates
+                gid = rg.get("id")
+                if gid:
                     try:
-                        y = int(str(date).split("-")[0])
-                        if y > 0:
-                            found_year = y
-                            break
+                        rg_full = musicbrainzngs.get_release_group_by_id(gid, includes=["releases"]) or {}
+                        releases = rg_full.get("release-group", {}).get("release-list") or []
+                        for rel in releases:
+                            rdate = rel.get("date") or rel.get("release-date")
+                            if rdate:
+                                y = _parse_year(rdate)
+                                if y:
+                                    candidate_years.append(y)
                     except Exception:
-                        continue
+                        # non-fatal; continue collecting other candidates
+                        pass
+
+            # Also search releases directly for additional release dates (may reveal earlier releases)
+            try:
+                logger.debug("MusicBrainz: searching releases for: %s", query_terms)
+                rel_result = musicbrainzngs.search_releases(query_terms, limit=10) or {}
+                rels = rel_result.get("release-list") or []
+                for rel in rels:
+                    rdate = rel.get("date") or rel.get("release-date")
+                    if rdate:
+                        y = _parse_year(rdate)
+                        if y:
+                            candidate_years.append(y)
+            except Exception:
+                # non-fatal; we already attempted release-group detail fetches
+                logger.debug("MusicBrainz release search failed for %s", query_terms)
+
+            if candidate_years:
+                # choose the earliest year found (master release year)
+                found_year = min(candidate_years)
 
             if found_year is None:
                 # no candidate year discovered
