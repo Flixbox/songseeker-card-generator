@@ -48,7 +48,7 @@ python .\generatePlayCards.py <input_csv_path> [output_pdf_path] [options]
 - `--shrink-front <percent>`: Shrink percentage for the front (QR) content area. Example: `10` makes content 10% smaller (90% of original inner area).
 - `--shrink-back <percent>`: Shrink percentage for the back (text) content area. Example: `15` makes content 15% smaller.
 - `--fix-links`: (Slow, ~2 seconds per link) Automatically pulls up each YouTube link to verify that the video exists. Replaces the QR code with the first live search result if the given link isn't a valid video. Only works with songs (restricted to songs only to avoid video noise).
-- `--fix-csv`: (Slow, ~2 seconds per link) Includes `--fix-links`. Also fix any mostakes in the csv (updates links, removes duplicates).
+- `--fix-csv`: (Slow, ~2 seconds per link) Includes `--fix-links`. Also fix any mistakes in the csv (updates links, removes duplicates). **Protip: If you provide this parameter, you don't need to add any links in your CSV.**
 
 ### Example
 
