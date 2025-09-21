@@ -50,8 +50,6 @@ python .\generatePlayCards.py <input_csv_path> [output_pdf_path] [options]
 - `--fix-links`: (Slow, ~5-10 seconds per link) Automatically pulls up each YouTube link to verify that the video exists. Replaces the QR code with the first live search result if the given link isn't a valid video. Only works with songs (restricted to songs only to avoid video noise).
 - `--fix-csv`: (Slow, ~5-10 seconds per link) Includes `--fix-links`. Also fix any mistakes in the csv (updates links, removes duplicates). **Protip: If you provide this parameter, you don't need to add any links in your CSV.**
 
-The `fix` parameters will also fix the year for every song by searching musicbrainz.
-
 ### Example
 
 ```bash
@@ -101,12 +99,6 @@ The input CSV file should have the following format:
 Make sure your CSV file includes headers and the data is separated by commas.
 
 An example can be found in `data/example-youtube-songs.csv`.
-
-## FAQ
-
-- I'm getting a lot of `uncaught attribute` messages.
-
-The Musicbrainz API is used to double-check each song's release date. Unfortunately the library used to check this data appears to be a little bit out of date. The warnings appear to have no effect.
 
 ## Contributing
 

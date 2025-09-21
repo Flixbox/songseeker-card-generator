@@ -17,7 +17,6 @@ from .text_boxes import add_text_box
 from .link_check import validate_dataframe_urls
 from .precheck import remove_duplicates
 from .csv_utils import write_corrections_to_csv
-from .musicbrainz_check import check_and_fix_years
 import logging
 
 
@@ -126,16 +125,7 @@ def main(
         results, link_corrections = validate_dataframe_urls(data, url_column=url_col, logger=logger)
         # Merge duplicate removal corrections (from pre-check) with link corrections so both are applied to CSV when requested
         corrections = list(initial_corrections) + list(link_corrections)
-
-        # If requested, attempt MusicBrainz year verification/corrections now so they are included in CSV write
-        if fix_csv:
-            try:
-                year_corrections = check_and_fix_years(data, csv_file_path, corrections=corrections, logger=logger)
-                if year_corrections:
-                    logger.info("Applied %d year correction(s) from MusicBrainz.", len(year_corrections))
-            except Exception:
-                logger.exception("MusicBrainz year verification failed")
-
+        
         # Count how many corrections filled previously-empty URLs
         filled_missing = 0
         for corr in link_corrections:
