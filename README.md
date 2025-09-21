@@ -100,6 +100,12 @@ Make sure your CSV file includes headers and the data is separated by commas.
 
 An example can be found in `data/example-youtube-songs.csv`.
 
+## FAQ
+
+- I'm getting a lot of `uncaught attribute` messages.
+
+The Musicbrainz API is used to double-check each song's release date. Unfortunately the library used to check this data appears to be a little bit out of date. The warnings appear to have no effect.
+
 ## Contributing
 
 Contributions to the SongSeeker Card Generator are welcome. Please ensure to update tests as appropriate.
